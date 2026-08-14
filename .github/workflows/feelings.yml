@@ -2,16 +2,19 @@ name: feelings ping
 
 on:
   schedule:
-    # GitHub понимает только UTC, а окно нужно по Дублину (летом UTC+1, зимой UTC+0).
-    # Поэтому дёргаем с запасом 08:00-20:45 UTC, а send.py сам отсекает всё,
-    # что вне 09:00-21:00 по Дублину.
-    - cron: "0,15,30,45 8-20 * * *"
+    # Хвилини навмисно не круглі: GitHub найбільше відкидає запуски на початку
+    # години. Вікно 08:00-20:52 UTC з запасом покриває 09:00-21:00 за Дубліном
+    # і взимку, і влітку — send.py сам відсіює зайве.
+    - cron: "7,22,37,52 8-20 * * *"
   workflow_dispatch:
     inputs:
       force:
-        description: "Отправить сразу, не глядя на расписание"
+        description: "Надіслати одразу, не дивлячись на розклад"
         type: boolean
         default: false
+
+permissions:
+  contents: write
 
 concurrency:
   group: feelings-ping
@@ -20,12 +23,27 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
       - run: python send.py
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           TZ_NAME: Europe/Dublin
           FORCE: ${{ inputs.force }}
+
+      - name: save state
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "state $(date -u '+%F %H:%M')"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "стан не змінився"
+          fi
