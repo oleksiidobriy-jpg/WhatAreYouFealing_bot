@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -26,24 +27,24 @@ TZ = ZoneInfo(os.environ.get("TZ_NAME", "Europe/Dublin"))
 START_HOUR = 9              # включно, за Дубліном
 END_HOUR = 21               # не включно, тобто останній слот 20:45
 SLOT_MINUTES = 15
-COUNTS_PER_DAY = (5, 6, 7)  # скільки повідомлень на день, обирається випадково
+COUNTS_PER_DAY = (2, 3, 4, 5)  # скільки повідомлень на день, обирається випадково
 MIN_GAP_MINUTES = 60        # мінімальний розрив між повідомленнями
 MAX_LATE_MINUTES = 90       # наскільки пізно ще не соромно надолужити пропущене
 
 STATE_FILE = "state.json"
-NAME = "Таня"
+NAME = "Таня"  # подставится вместо {name}, если добавишь его в текст
 
 MESSAGES = [
-    "Привет, {name}. Что ты сейчас чувствуешь?",
-    "{name}, привет. Какие чувства у тебя прямо сейчас?",
-    "Привет. Остановись на секунду — что ты сейчас чувствуешь?",
-    "{name}, что сейчас внутри?",
-    "Привет, {name}. Назови одним словом, что чувствуешь сейчас.",
-    "Что ты чувствуешь в эту минуту, {name}?",
-    "{name}, привет. Какое чувство сейчас самое сильное?",
-    "Привет. Как ты сейчас себя чувствуешь?",
-    "{name}, что происходит внутри прямо сейчас?",
-    "Привет, {name}. Что чувствуешь в этот момент?",
+    "Что ты сейчас делаешь? А что чувствуешь?",
+    "Расскажи, что ты сейчас делаешь, как тебе это?",
+    "Чем ты сейчас занята? И что при этом чувствуешь?",
+    "Что происходит прямо сейчас? Как оно тебе?",
+    "Расскажи, чем занимаешься. Какие ощущения?",
+    "Что делаешь в эту минуту? И как себя при этом чувствуешь?",
+    "Чем сейчас занята? Что внутри?",
+    "Опиши, что делаешь прямо сейчас, и что при этом чувствуешь.",
+    "Что у тебя сейчас происходит? Как оно ощущается?",
+    "Расскажи, где ты и что делаешь. Что чувствуешь?",
 ]
 
 # ---------- план на день ----------
@@ -107,16 +108,28 @@ def save_state(state: dict) -> None:
 # ---------- відправка ----------
 
 
+def recipients() -> list[str]:
+    """CHAT_ID може містити кілька id через кому: 340704277,123456789"""
+    raw = os.environ["CHAT_ID"].replace(";", ",").replace(" ", ",")
+    return [c for c in (part.strip() for part in raw.split(",")) if c]
+
+
 def send(text: str) -> None:
     token = os.environ["BOT_TOKEN"]
-    chat_id = os.environ["CHAT_ID"]
-    req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({"chat_id": chat_id, "text": text}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        print("telegram:", resp.status, resp.read().decode()[:200])
+    for chat_id in recipients():
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=json.dumps({"chat_id": chat_id, "text": text}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                print(f"telegram {chat_id}: {resp.status} {resp.read().decode()[:120]}")
+        except urllib.error.HTTPError as e:
+            # один получатель не должен ронять отправку остальным
+            print(f"telegram {chat_id}: ОШИБКА {e.code} {e.read().decode()[:200]}")
+        except Exception as e:
+            print(f"telegram {chat_id}: ОШИБКА {e}")
 
 
 def main() -> None:
